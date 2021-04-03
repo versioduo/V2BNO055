@@ -1,9 +1,8 @@
 #include "V2BNO055.h"
-#include "bno055/bno055_support.h"
 
 static struct bno055_t _sensor;
 
-void V2BNO055::begin() {
+void V2BNO055::begin(uint8_t mode) {
   BNO_Init(&_sensor, _i2c);
 
   // Reset sensor.
@@ -34,7 +33,7 @@ void V2BNO055::begin() {
   }
 
   // Nine degrees of freedom - reads accel, mag, gyro and fusion data.
-  bno055_set_operation_mode(BNO055_OPERATION_MODE_NDOF);
+  bno055_set_operation_mode(mode);
 
   // Wait for: fusion algorithm running.
   for (;;) {

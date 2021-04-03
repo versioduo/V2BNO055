@@ -1,7 +1,8 @@
 #pragma once
 
-#include "Arduino.h"
-#include "Wire.h"
+#include "bno055/bno055_support.h"
+#include <Arduino.h>
+#include <Wire.h>
 
 class V2BNO055 {
 public:
@@ -10,7 +11,7 @@ public:
     _pin_interrupt(pin_interrupt),
     _i2c(i2c) {}
 
-  void begin();
+  void begin(uint8_t mode = BNO055_OPERATION_MODE_NDOF);
   bool readEuler(float &heading, float &roll, float &pitch);
   bool readQuaternion(float &w, float &x, float &y, float &z);
   bool readGravity(float &x, float &y, float &z);
