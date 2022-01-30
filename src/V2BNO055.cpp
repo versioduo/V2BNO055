@@ -1,3 +1,6 @@
+// © Kay Sievers <kay@versioduo.com>, 2020-2022
+// SPDX-License-Identifier: Apache-2.0
+
 #include "V2BNO055.h"
 
 static struct bno055_t _sensor;
