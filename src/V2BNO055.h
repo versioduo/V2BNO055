@@ -14,15 +14,23 @@ public:
     _pin_interrupt(pin_interrupt),
     _i2c(i2c) {}
 
-  void begin(uint8_t mode = BNO055_OPERATION_MODE_NDOF);
-  bool readEuler(float &heading, float &roll, float &pitch);
-  bool readQuaternion(float &w, float &x, float &y, float &z);
-  bool readGravity(float &x, float &y, float &z);
-  bool readAcceleration(float &x, float &y, float &z);
-  float readTemperature();
+  void begin();
+  void loop();
+  void reset(uint8_t mode = BNO055_OPERATION_MODE_NDOF);
+
+  bool readEulerData(float &yaw, float &pitch, float &roll);
+  bool readQuaternionData(float &w, float &x, float &y, float &z);
+  bool readGravityData(float &x, float &y, float &z);
+  bool readAccelerationData(float &x, float &y, float &z);
+  bool readMagnetometerData(float &x, float &y, float &z);
+  bool readTemperature(float &t);
+
+protected:
+  virtual void handleReset() {}
 
 private:
   uint8_t _pin_reset;
   uint8_t _pin_interrupt;
   TwoWire *_i2c;
+  uint8_t _mode{};
 };

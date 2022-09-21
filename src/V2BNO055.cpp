@@ -5,62 +5,124 @@
 
 static struct bno055_t _sensor;
 
-void V2BNO055::begin(uint8_t mode) {
+enum class State {
+  Idle,
+  Reset,
+  Delay,
+  WaitForIdle,
+  Crystal,
+  WaitForStatus,
+  Mode,
+  WaitForRunning,
+  Running,
+  Ready,
+  _count
+};
+
+static struct {
+  State state;
+  uint8_t status;
+  unsigned long usec;
+} _reset{};
+
+void V2BNO055::begin() {
   BNO_Init(&_sensor, _i2c);
+}
 
-  // Reset sensor.
-  bno055_set_sys_rst(1);
-  delay(700);
+void V2BNO055::reset(uint8_t mode) {
+  handleReset();
+  _mode        = mode;
+  _reset.state = State::Reset;
+}
 
-  // Wait for: idle.
-  for (;;) {
-    uint8_t status;
-    bno055_get_sys_stat_code(&status);
-    if (status == 0)
+void V2BNO055::loop() {
+  switch (_reset.state) {
+    case State::Idle:
+    case State::Ready:
+      return;
+
+    case State::Reset:
+      // Reset sensor.
+      bno055_set_sys_rst(1);
+      _reset.state = State::Delay;
+      _reset.usec  = micros();
       break;
 
-    delay(1);
-  }
+    case State::Delay:
+      if ((unsigned long)(micros() - _reset.usec) < 600 * 1000)
+        break;
 
-  // Enable external crystal.
-  bno055_set_clk_src(1);
-
-  // Wait for: clock status cleared.
-  for (;;) {
-    uint8_t status;
-    bno055_get_stat_main_clk(&status);
-    if ((status & 1) == 0)
+      _reset.state = State::WaitForIdle;
+      _reset.usec  = micros();
       break;
 
-    delay(1);
-  }
+    case State::WaitForIdle:
+      if ((unsigned long)(micros() - _reset.usec) < 1000)
+        break;
 
-  // Nine degrees of freedom - reads accel, mag, gyro and fusion data.
-  bno055_set_operation_mode(mode);
+      bno055_get_sys_stat_code(&_reset.status);
+      _reset.usec = micros();
 
-  // Wait for: fusion algorithm running.
-  for (;;) {
-    uint8_t status;
-    bno055_get_sys_stat_code(&status);
-    if (status == 5)
+      if (_reset.status == 0)
+        _reset.state = State::Crystal;
       break;
 
-    delay(1);
+    case State::Crystal:
+      // Enable external crystal.
+      bno055_set_clk_src(1);
+      _reset.state = State::WaitForStatus;
+      break;
+
+    case State::WaitForStatus:
+      bno055_get_stat_main_clk(&_reset.status);
+      if ((_reset.status & 1) == 0)
+        _reset.state = State::Mode;
+      break;
+
+    case State::Mode:
+      bno055_set_operation_mode(_mode);
+      _reset.state = State::WaitForRunning;
+      _reset.usec  = 0;
+      break;
+
+    case State::WaitForRunning:
+      if ((unsigned long)(micros() - _reset.usec) < 1000)
+        break;
+
+      bno055_get_sys_stat_code(&_reset.status);
+      _reset.usec = micros();
+
+      if (_reset.status == 5)
+        _reset.state = State::Running;
+      break;
+
+    case State::Running:
+      if ((unsigned long)(micros() - _reset.usec) < 1000)
+        break;
+
+      _reset.state = State::Ready;
+      break;
   }
 }
 
-bool V2BNO055::readEuler(float &heading, float &roll, float &pitch) {
+bool V2BNO055::readEulerData(float &yaw, float &pitch, float &roll) {
+  if (_reset.state != State::Ready)
+    return false;
+
   struct bno055_euler_t sensorData;
   if (bno055_read_euler_hrp(&sensorData) != BNO055_SUCCESS)
     return false;
 
-  heading = (float)sensorData.h / (float)BNO055_EULER_DIV_DEG;
-  roll    = (float)sensorData.r / (float)BNO055_EULER_DIV_DEG;
-  pitch   = (float)sensorData.p / (float)BNO055_EULER_DIV_DEG;
+  yaw   = (float)sensorData.h / (float)BNO055_EULER_DIV_DEG;
+  pitch = (float)sensorData.p / (float)BNO055_EULER_DIV_DEG;
+  roll  = (float)sensorData.r / (float)BNO055_EULER_DIV_DEG;
   return true;
 }
 
-bool V2BNO055::readQuaternion(float &w, float &x, float &y, float &z) {
+bool V2BNO055::readQuaternionData(float &w, float &x, float &y, float &z) {
+  if (_reset.state != State::Ready)
+    return false;
+
   struct bno055_quaternion_t sensorData;
   if (bno055_read_quaternion_wxyz(&sensorData) != BNO055_SUCCESS)
     return false;
@@ -72,7 +134,10 @@ bool V2BNO055::readQuaternion(float &w, float &x, float &y, float &z) {
   return true;
 }
 
-bool V2BNO055::readGravity(float &x, float &y, float &z) {
+bool V2BNO055::readGravityData(float &x, float &y, float &z) {
+  if (_reset.state != State::Ready)
+    return false;
+
   struct bno055_gravity_t sensorData;
   if (bno055_read_gravity_xyz(&sensorData) != BNO055_SUCCESS)
     return false;
@@ -83,7 +148,10 @@ bool V2BNO055::readGravity(float &x, float &y, float &z) {
   return true;
 }
 
-bool V2BNO055::readAcceleration(float &x, float &y, float &z) {
+bool V2BNO055::readAccelerationData(float &x, float &y, float &z) {
+  if (_reset.state != State::Ready)
+    return false;
+
   struct bno055_linear_accel_t sensorData;
   if (bno055_read_linear_accel_xyz(&sensorData) != BNO055_SUCCESS)
     return false;
@@ -94,10 +162,28 @@ bool V2BNO055::readAcceleration(float &x, float &y, float &z) {
   return true;
 }
 
-float V2BNO055::readTemperature() {
+bool V2BNO055::readMagnetometerData(float &x, float &y, float &z) {
+  if (_reset.state != State::Ready)
+    return false;
+
+  struct bno055_mag_t sensorData;
+  if (bno055_read_mag_xyz(&sensorData) != BNO055_SUCCESS)
+    return false;
+
+  x = (float)sensorData.x / (float)BNO055_MAG_DIV_UT;
+  y = (float)sensorData.y / (float)BNO055_MAG_DIV_UT;
+  z = (float)sensorData.z / (float)BNO055_MAG_DIV_UT;
+  return true;
+}
+
+bool V2BNO055::readTemperature(float &t) {
+  if (_reset.state != State::Ready)
+    return false;
+
   int8_t temp;
   if (bno055_read_temp_data(&temp) != BNO055_SUCCESS)
-    return 0;
+    return false;
 
-  return (float)temp / (float)BNO055_TEMP_DIV_CELSIUS;
+  t = (float)temp / (float)BNO055_TEMP_DIV_CELSIUS;
+  return true;
 }
